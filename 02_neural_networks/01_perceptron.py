@@ -1,275 +1,350 @@
 """
-==============================================================
-第2章 第1节：感知机 —— 最简单的神经元
-==============================================================
+====================================================================
+第2章 · 第1节 · 感知机
+====================================================================
 
-【为什么需要它？】
-1943年，McCulloch 和 Pitts 受大脑神经元启发，
-提出了第一个计算模型：人工神经元。
-1958年，Rosenblatt 提出感知机学习算法。
+【一句话总结】
+感知机是最简单的神经网络——一个单层的线性分类器。它的局限性（解不了XOR）
+直接推动了多层网络和深度学习的诞生。
 
-感知机是所有深度学习的起点，理解它是理解神经网络的基础。
+【为什么深度学习需要这个？】
+- 感知机是理解神经元的起点：输入→加权求和→激活→输出
+- XOR 问题证明了单层的局限，这是深度学习"深度"的根本动机
+- 感知机学习算法是梯度下降的简化版
 
-【生活类比】
-感知机 = 一个做决定的人（投票器）
-  - 他关注 n 个因素（特征 x1, x2, ..., xn）
-  - 每个因素的重要程度不同（权重 w1, w2, ..., wn）
-  - 他把加权分数求和，如果超过阈值就说"是"
+【核心概念】
 
-例子：决定明天是否去野餐
-  x1=是否晴天(1/0)  × w1=2.0（很重要）
-  x2=是否有钱(1/0)  × w2=1.0（比较重要）
-  x3=是否有空(1/0)  × w3=3.0（非常重要）
-  如果 2*x1 + 1*x2 + 3*x3 > 3，就去！
+1. 生物神经元与人工神经元
+   - 生物：树突接收信号 → 胞体整合 → 超过阈值 → 轴突发射
+   - 人工：输入×权重求和 → 加偏置 → 激活函数 → 输出
+   - 对应：突触强度 = 权重，阈值 = 偏置的负数
 
-【存在理由】
-解决问题：如何让计算机从例子中学会做决定？
-核心思想：加权投票 + 错误驱动更新
-==============================================================
+2. 感知机模型
+   - y = sign(w·x + b)
+   - 权重 w：每个输入特征的重要程度
+   - 偏置 b：决策阈值的调整
+   - sign：阶跃函数（>0输出+1，<0输出-1）
+
+3. 感知机学习算法
+   - 如果分类正确：不更新
+   - 如果分类错误：w = w + η·y·x, b = b + η·y
+   - 保证：如果数据线性可分，有限步内必收敛
+
+4. 线性可分性
+   - 能被一条直线（超平面）完美分开的数据 → 线性可分
+   - AND、OR 可以，XOR 不行！
+   - XOR 问题证明了感知机的根本局限
+
+5. 从感知机到多层网络
+   - 解决方案：堆叠多层感知机（MLP）
+   - 加上非线性激活函数 → 可以逼近任意函数
+   - 这就是"深度学习"的起源
+
+【前置知识】
+第0章 - 向量点积，第1章 - 分类基础
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 
-np.random.seed(42)
+plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+plt.rcParams["axes.unicode_minus"] = False
 
-# ============================================================
-# Part 1: 感知机模型
-# ============================================================
-print("=" * 50)
-print("Part 1: 感知机的结构")
-print("=" * 50)
 
-"""
-感知机的计算：
-  z = w₁x₁ + w₂x₂ + ... + wₙxₙ + b  （线性组合 + 偏置）
-  ŷ = sign(z)  = +1 if z > 0 else -1  （激活函数：阶跃）
+# ====================================================================
+# 第一部分：生物神经元与人工神经元的类比
+# ====================================================================
+print("=" * 60)
+print("第一部分：生物神经元与人工神经元的类比")
+print("=" * 60)
 
-感知机学习规则（错误驱动）：
-  如果预测对了：什么都不做
-  如果预测错了：
-    w = w + lr * y_true * x  （把权重往正确方向推）
-    b = b + lr * y_true
+#   生物神经元                   人工神经元（感知机）
+#   ──────────                   ──────────────────
+#   树突接收信号                  输入 x1, x2, ..., xn
+#   突触有不同强度                权重 w1, w2, ..., wn
+#   胞体整合所有信号              加权求和 z = w·x + b
+#   超过阈值 → 轴突发射          激活函数 y = sign(z)
+#   发射/不发射（全有或全无）     输出 +1 或 -1
+#
+# 关键类比：突触强度 = 权重，阈值 = -偏置
 
-直觉：如果把"+1"预测成了"-1"：
-  - y_true = +1，当前 w·x < 0
-  - 更新后 w_new = w + x，让 w_new·x = w·x + x·x > w·x（正向了！）
-"""
+print("""
+  x1 ──w1──┐
+  x2 ──w2──┼──→ [求和 z=w·x+b] ──→ [sign(z)] ──→ y
+  x3 ──w3──┘
+       +b(偏置)
+
+  y = sign(w1*x1 + w2*x2 + ... + b)
+  y = +1 若 z > 0（激活）;  y = -1 若 z <= 0（静默）
+""")
+
+# 具体计算示例
+x_demo, w_demo, b_demo = np.array([0.6, 0.8]), np.array([0.5, -0.3]), 0.1
+z_demo = np.dot(w_demo, x_demo) + b_demo
+print(f"示例: x={x_demo}, w={w_demo}, b={b_demo}")
+print(f"  z = 0.5*0.6+(-0.3)*0.8+0.1 = {z_demo:.2f}, y = sign({z_demo:.2f}) = {1 if z_demo>0 else -1}\n")
+
+
+# ====================================================================
+# 第二部分：感知机类的实现
+# ====================================================================
+print("=" * 60)
+print("第二部分：感知机类的实现")
+print("=" * 60)
 
 class Perceptron:
-    def __init__(self, learning_rate=0.1, max_epochs=100):
-        self.lr = learning_rate
-        self.max_epochs = max_epochs
+    """
+    感知机分类器：y = sign(w·x + b)
+    学习规则：分类错误时 w += η*y*x, b += η*y；正确时不更新。
+    """
+
+    def __init__(self, lr=1.0, n_iter=100):
+        self.lr = lr
+        self.n_iter = n_iter
         self.w = None
         self.b = None
-        self.error_history = []
+        self.errors_per_epoch = []  # 每轮错误数，用于观察收敛
 
     def fit(self, X, y):
+        """训练感知机。X: (n_samples, n_features), y: +1/-1 标签。"""
         n_samples, n_features = X.shape
         self.w = np.zeros(n_features)
         self.b = 0.0
+        self.errors_per_epoch = []
 
-        for epoch in range(self.max_epochs):
+        for epoch in range(self.n_iter):
             errors = 0
             for i in range(n_samples):
-                # 预测
-                z = np.dot(self.w, X[i]) + self.b
-                y_pred = 1 if z > 0 else -1
-
-                # 更新（只有预测错了才更新！）
-                if y_pred != y[i]:
+                y_hat = self.predict_one(X[i])
+                if y_hat != y[i]:
+                    # 朝正确方向"推"决策边界
                     self.w += self.lr * y[i] * X[i]
                     self.b += self.lr * y[i]
                     errors += 1
-
-            self.error_history.append(errors)
-            if errors == 0:
-                print(f"  在 epoch {epoch+1} 收敛！")
+            self.errors_per_epoch.append(errors)
+            if errors == 0:  # 全部正确，提前停止
                 break
-
         return self
 
+    def predict_one(self, x):
+        """单样本预测"""
+        return 1 if np.dot(self.w, x) + self.b > 0 else -1
+
     def predict(self, X):
-        z = X @ self.w + self.b
-        return np.where(z > 0, 1, -1)
+        """批量预测"""
+        return np.array([self.predict_one(x) for x in X])
 
     def score(self, X, y):
+        """计算准确率"""
         return np.mean(self.predict(X) == y)
 
-# ============================================================
-# Part 2: 在线性可分数据上测试
-# ============================================================
-print("\nPart 2: 感知机在线性可分数据上")
-print("=" * 50)
 
-# 生成线性可分数据
-n = 100
-X_pos = np.random.randn(n//2, 2) + np.array([2, 2])
-X_neg = np.random.randn(n//2, 2) + np.array([-2, -2])
-X_linear = np.vstack([X_pos, X_neg])
-y_linear = np.array([1] * (n//2) + [-1] * (n//2))
+print("Perceptron 类已定义: fit(X,y) 训练, predict(X) 预测, score(X,y) 评估\n")
 
-perceptron = Perceptron(learning_rate=0.1, max_epochs=100)
-perceptron.fit(X_linear, y_linear)
-print(f"准确率：{perceptron.score(X_linear, y_linear):.2%}")
 
-# 可视化学习过程
+# ====================================================================
+# 第三部分：AND / OR 门学习
+# ====================================================================
+print("=" * 60)
+print("第三部分：AND / OR 门学习")
+print("=" * 60)
+
+# AND: 只有 (1,1)→+1，其余→-1      OR: 只有 (0,0)→-1，其余→+1
+X_logic = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=float)
+y_and = np.array([-1, -1, -1, 1])
+y_or = np.array([-1, 1, 1, 1])
+
+p_and = Perceptron(lr=1.0, n_iter=20).fit(X_logic, y_and)
+p_or = Perceptron(lr=1.0, n_iter=20).fit(X_logic, y_or)
+
+for name, model, y_true in [("AND", p_and, y_and), ("OR", p_or, y_or)]:
+    print(f"{name}: w={model.w}, b={model.b}, "
+          f"预测={model.predict(X_logic)}, 准确率={model.score(X_logic, y_true)*100:.0f}%, "
+          f"收敛轮数={len(model.errors_per_epoch)}")
+print()
+
+
+# ====================================================================
+# 第四部分：XOR 失败演示
+# ====================================================================
+print("=" * 60)
+print("第四部分：XOR 失败演示——感知机的根本局限")
+print("=" * 60)
+
+# XOR: (0,0)→-1, (0,1)→+1, (1,0)→+1, (1,1)→-1
+# 无论怎么画一条直线，都无法正确分开这四个点！
+y_xor = np.array([-1, 1, 1, -1])
+
+p_xor = Perceptron(lr=1.0, n_iter=100).fit(X_logic, y_xor)
+print(f"XOR（训练100轮）: w={p_xor.w}, b={p_xor.b}")
+print(f"  预测={p_xor.predict(X_logic)}, 真实={y_xor}")
+print(f"  准确率={p_xor.score(X_logic, y_xor)*100:.0f}%")
+print(f"  最后10轮错误数: {p_xor.errors_per_epoch[-10:]}")
+print("结论: 错误数永远无法降到0——XOR 线性不可分！")
+print("1969年 Minsky & Papert 的证明导致了第一次 AI 寒冬。\n")
+
+
+# ====================================================================
+# 第五部分：决策边界可视化
+# ====================================================================
+print("=" * 60)
+print("第五部分：决策边界可视化")
+print("=" * 60)
+
+
+def plot_decision_boundary(ax, predict_fn, w, b, X, y, title):
+    """绘制决策边界和数据点。w·x+b=0 在二维中是直线。"""
+    for label, c, m in [(1, "tomato", "o"), (-1, "steelblue", "s")]:
+        mask = y == label
+        ax.scatter(X[mask, 0], X[mask, 1], c=c, marker=m, s=120,
+                   edgecolors="k", linewidths=1.2, label=f"{label:+d}", zorder=5)
+    xx, yy = np.meshgrid(np.linspace(-0.5, 1.5, 200), np.linspace(-0.5, 1.5, 200))
+    Z = predict_fn(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape)
+    ax.contourf(xx, yy, Z, levels=[-2, 0, 2], colors=["#AEC7E8", "#FFAEB9"], alpha=0.3)
+    if w is not None and abs(w[1]) > 1e-10:  # 画决策边界线
+        x1_ln = np.linspace(-0.5, 1.5, 100)
+        x2_ln = -(w[0] * x1_ln + b) / w[1]
+        ok = (x2_ln >= -0.5) & (x2_ln <= 1.5)
+        ax.plot(x1_ln[ok], x2_ln[ok], "k--", linewidth=2)
+    ax.set_xlim(-0.5, 1.5); ax.set_ylim(-0.5, 1.5)
+    ax.set_xlabel("$x_1$"); ax.set_ylabel("$x_2$")
+    ax.set_title(title, fontsize=12); ax.legend(fontsize=9, loc="upper left")
+    ax.set_aspect("equal"); ax.grid(True, alpha=0.3)
+
+
+# 决策边界三合一图
+fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+for ax, mdl, yt, name, ok in [(axes[0], p_and, y_and, "AND", True),
+                                (axes[1], p_or, y_or, "OR", True),
+                                (axes[2], p_xor, y_xor, "XOR", False)]:
+    status = "学会了!" if ok else "失败!"
+    plot_decision_boundary(ax, mdl.predict, mdl.w, mdl.b, X_logic, yt,
+                           f"{name} 门 ({status})")
+
+plt.suptitle("感知机决策边界：AND/OR 成功，XOR 失败", fontsize=14, y=1.02)
+plt.tight_layout()
+plt.savefig("01_perceptron_boundaries.png", dpi=100, bbox_inches="tight")
+plt.show()
+print("[图片已保存] 01_perceptron_boundaries.png")
+
+# 收敛过程图
 fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-
-ax = axes[0]
-ax.scatter(X_pos[:, 0], X_pos[:, 1], c='red', s=40, alpha=0.6, label='+1')
-ax.scatter(X_neg[:, 0], X_neg[:, 1], c='blue', s=40, alpha=0.6, label='-1')
-
-# 决策边界：w[0]*x1 + w[1]*x2 + b = 0 → x2 = -(w[0]*x1 + b) / w[1]
-x_range = np.linspace(-5, 5, 100)
-if abs(perceptron.w[1]) > 1e-6:
-    y_boundary = -(perceptron.w[0] * x_range + perceptron.b) / perceptron.w[1]
-    ax.plot(x_range, y_boundary, 'k-', linewidth=2.5, label='学到的边界')
-
-ax.set_xlim(-5, 5)
-ax.set_ylim(-5, 5)
-ax.set_title('感知机：线性可分')
-ax.legend()
-ax.grid(True, alpha=0.3)
-
-# 错误历史
-ax = axes[1]
-ax.plot(perceptron.error_history, 'r-o', markersize=4)
-ax.set_xlabel('Epoch')
-ax.set_ylabel('分类错误数')
-ax.set_title('学习过程：错误逐渐减少到0')
-ax.grid(True, alpha=0.3)
-
-# ============================================================
-# Part 3: 感知机的局限 —— XOR 问题
-# ============================================================
-print("\nPart 3: 感知机的致命弱点 —— XOR 问题")
-print("=" * 50)
-
-"""
-XOR（异或）问题：
-  x1=0, x2=0 → 0
-  x1=0, x2=1 → 1
-  x1=1, x2=0 → 1
-  x1=1, x2=1 → 0
-
-这个规律不能用一条直线分开（非线性！）
-感知机（线性分类器）无法解决 XOR 问题。
-
-这个"缺陷"在 1969 年被 Minsky 和 Papert 指出，
-导致了第一次"AI 寒冬"！
-
-解决方法：多层感知机（MLP），也就是深度神经网络。
-"""
-
-# XOR 数据
-X_xor = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=float)
-y_xor = np.array([-1, 1, 1, -1])  # 用 ±1 表示
-
-print("XOR 数据：")
-for x, label in zip(X_xor, y_xor):
-    print(f"  x={x}，y={label}")
-
-# 尝试用感知机学习 XOR
-perceptron_xor = Perceptron(learning_rate=0.1, max_epochs=1000)
-perceptron_xor.fit(X_xor, y_xor)
-acc = perceptron_xor.score(X_xor, y_xor)
-print(f"\n感知机在 XOR 上的准确率：{acc:.2%}  （无法达到100%！）")
-print(f"收敛了吗？错误历史最后5个：{perceptron_xor.error_history[-5:]}")
-print("\n结论：单层感知机无法解决非线性问题！需要多层（MLP）。")
-
-# 可视化 XOR 无法线性分割
-ax = axes[2]
-colors = ['red' if y == 1 else 'blue' for y in y_xor]
-markers = ['o', '^', 's', 'D']
-for i, (x, y, c, m) in enumerate(zip(X_xor, y_xor, colors, markers)):
-    ax.scatter(x[0], x[1], c=c, s=300, marker=m, zorder=5,
-              label=f'({x[0]:.0f},{x[1]:.0f})→{y}')
-
-# 尝试画几条直线，没有一条能分开
-for w1, w2, b, color in [(1, 1, -1.5, 'gray'),
-                          (1, -1, 0, 'purple'),
-                          (0.5, 0.5, -0.8, 'brown')]:
-    x_r = np.linspace(-0.5, 1.5, 100)
-    if abs(w2) > 0.001:
-        y_r = -(w1 * x_r + b) / w2
-        ax.plot(x_r, y_r, '-', color=color, alpha=0.5, linewidth=1.5)
-
-ax.set_xlim(-0.5, 1.5)
-ax.set_ylim(-0.5, 1.5)
-ax.set_title('XOR 问题\n任何直线都无法分开\n→ 需要多层网络！')
-ax.legend(fontsize=8, loc='upper right')
-ax.grid(True, alpha=0.3)
-ax.set_aspect('equal')
-
-ax.text(0.5, -0.4, '这4个点无法被直线分成正确的两组', ha='center', fontsize=9, color='red')
+for ax, mdl, name in [(axes[0], p_and, "AND"),
+                        (axes[1], p_or, "OR"),
+                        (axes[2], p_xor, "XOR")]:
+    ax.plot(range(1, len(mdl.errors_per_epoch)+1),
+            mdl.errors_per_epoch, "o-", color="steelblue", linewidth=2)
+    ax.set_xlabel("训练轮数"); ax.set_ylabel("错误样本数")
+    ax.set_title(f"{name} 收敛过程"); ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('02_neural_networks/perceptron.png', dpi=100, bbox_inches='tight')
-print("\n图片已保存：02_neural_networks/perceptron.png")
+plt.savefig("01_perceptron_convergence.png", dpi=100, bbox_inches="tight")
 plt.show()
+print("[图片已保存] 01_perceptron_convergence.png\n")
 
-# ============================================================
-# Part 4: 为什么需要多层？——可视化"隐藏层的魔法"
-# ============================================================
-print("\n" + "=" * 50)
-print("Part 4: 多层如何解决 XOR？（直觉）")
-print("=" * 50)
 
-"""
-想法：如果我们先用两个神经元做"预处理"，
-把 XOR 的数据变换到一个新的空间，
-也许在新空间里就线性可分了？
+# ====================================================================
+# 第六部分：从感知机到 MLP——两层网络解决 XOR
+# ====================================================================
+print("=" * 60)
+print("第六部分：从感知机到 MLP——两层网络解决 XOR")
+print("=" * 60)
 
-手动设计的两层网络（不通过训练）：
-  隐藏神经元1：h1 = step(x1 + x2 - 1.5)  （检测"至少一个为1"）
-  隐藏神经元2：h2 = step(x1 + x2 - 0.5)  （检测"至少有一个为1"）
-  输出：y = step(h1 - h2 + 0.5) （一个1但不是两个1）
+# 思路：一个感知机画一条线，两个感知机画两条线，组合起来圈出 XOR 区域
+#   隐藏层神经元1: h1 = sign(x1 + x2 - 0.5)   → OR
+#   隐藏层神经元2: h2 = sign(-x1 - x2 + 1.5)  → NAND
+#   输出层:        y  = sign(h1 + h2 - 1.5)    → AND(h1, h2)
+# 组合效果: XOR = AND(OR, NAND)
 
-新特征 (h1, h2) 在新空间里是线性可分的！
-"""
+W1_mlp = np.array([[1.0, 1.0], [-1.0, -1.0]])  # 隐藏层权重
+b1_mlp = np.array([-0.5, 1.5])                   # 隐藏层偏置
+W2_mlp = np.array([1.0, 1.0])                    # 输出层权重
+b2_mlp = -1.5                                     # 输出层偏置
 
-def step(x):
-    return (x > 0).astype(float)
 
-# 手动设计的权重（通常由训练得到）
-print("手动设计两层网络解决 XOR：")
-for x in X_xor:
-    h1 = step(x[0] + x[1] - 1.5)  # AND 门
-    h2 = step(x[0] + x[1] - 0.5)  # OR 门（近似）
-    output = step(-2 * h1 + h2 - 0.5)  # XOR = OR AND (NOT AND)
-    print(f"  x={x.astype(int)}: h1={h1:.0f}, h2={h2:.0f} → output={output:.0f}  "
-          f"（正确答案：{(x[0] != x[1]):.0f}）")
+def mlp_predict(X):
+    """两层网络前向传播"""
+    results = []
+    for x in X:
+        h = np.where(W1_mlp @ x + b1_mlp > 0, 1.0, -1.0)  # 隐藏层
+        y = 1 if np.dot(W2_mlp, h) + b2_mlp > 0 else -1    # 输出层
+        results.append(y)
+    return np.array(results)
 
-print("\n通过增加一个隐藏层，XOR 问题被解决了！")
-print("这就是深度学习的核心：用多层网络学习复杂的非线性特征")
 
-# ============================================================
-# 思考题
-# ============================================================
-print("\n" + "=" * 50)
-print("思考题")
-print("=" * 50)
+print("两层网络逐步计算 XOR:")
+for i, xi in enumerate(X_logic):
+    h = np.where(W1_mlp @ xi + b1_mlp > 0, 1, -1)
+    yi = 1 if np.dot(W2_mlp, h.astype(float)) + b2_mlp > 0 else -1
+    print(f"  {xi} → h={h} → y={yi:+d} (真实{y_xor[i]:+d}) {'OK' if yi==y_xor[i] else 'X'}")
+print(f"准确率: {np.mean(mlp_predict(X_logic)==y_xor)*100:.0f}%\n")
+
+# 对比可视化：单层 vs 两层
+fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
+
+plot_decision_boundary(axes[0], p_xor.predict, p_xor.w, p_xor.b,
+                       X_logic, y_xor, "单层感知机 vs XOR (失败)")
+
+plot_decision_boundary(axes[1], mlp_predict, None, None,
+                       X_logic, y_xor, "两层网络 vs XOR (成功!)")
+# 在右图上叠画两条隐藏层决策线
+x1_line = np.linspace(-0.5, 1.5, 100)
+axes[1].plot(x1_line, -x1_line + 0.5, "g--", lw=2, alpha=0.7, label="隐藏线1(OR)")
+axes[1].plot(x1_line, -x1_line + 1.5, "m--", lw=2, alpha=0.7, label="隐藏线2(NAND)")
+axes[1].legend(fontsize=9, loc="upper left")
+
+plt.suptitle("深度的力量：多层网络突破线性局限", fontsize=14, y=1.02)
+plt.tight_layout()
+plt.savefig("01_perceptron_vs_mlp.png", dpi=100, bbox_inches="tight")
+plt.show()
+print("[图片已保存] 01_perceptron_vs_mlp.png")
+print("核心启示：单层→一条线→线性问题; 多层→多条线组合→非线性问题; 更深→任意函数\n")
+
+
+# ====================================================================
+# 第七部分：思考题
+# ====================================================================
+print("=" * 60)
+print("第七部分：思考题")
+print("=" * 60)
 print("""
-1. 【感知机收敛定理】
-   如果数据线性可分，感知机算法保证在有限步内收敛。
-   如果数据线性不可分（如XOR），感知机会永远震荡。
-   修改代码，画出 XOR 上前100个epoch的错误数曲线，
-   验证它不会收敛到0。
+1. 【决策边界的维度】
+   二维输入时决策边界是直线。三维呢？n维呢？
+   提示：搜索"超平面"(hyperplane)。
 
-2. 【特征空间变换】
-   对 XOR 数据，添加特征 x3 = x1 * x2（交叉项）。
-   在新的3D空间 (x1, x2, x1*x2) 里，用感知机能解决吗？
-   （提示：尝试一下！这说明特征工程可以解决非线性问题）
+2. 【学习率实验】
+   用 η=0.1, 1.0, 10.0 分别训练 AND 感知机，比较收敛速度和最终权重。
+   >>> for lr in [0.1, 1.0, 10.0]:
+   ...     p = Perceptron(lr=lr).fit(X_logic, y_and)
+   ...     print(f"lr={lr}: {len(p.errors_per_epoch)}轮, w={p.w}, b={p.b}")
 
-3. 【神经元类比】
-   真实生物神经元：
-   - 树突（dendrite）= 接收输入信号
-   - 细胞体 = 累加信号
-   - 轴突 (axon) = 如果信号超过阈值，发出信号
+3. 【收敛定理】
+   感知机收敛定理保证线性可分数据有限步收敛，但步数与什么有关？
+   提示：与数据的"间隔"(margin)成反比——两类越远收敛越快。
 
-   感知机的哪些部分对应以上三个结构？
-   生物神经元的激活是"全有全无"（阶跃函数），
-   为什么人工神经元要用平滑的 sigmoid/ReLU？
+4. 【自动学习权重】
+   本节手工设定了 MLP 权重解 XOR。如何让网络自动学到这些权重？
+   提示：这正是下一节"反向传播"要解决的问题。
+
+5. 【更多逻辑门】
+   NAND、NOR 是否线性可分？写出真值表并用感知机验证。
+   提示：NAND 和 NOR 都是"通用门"——任何逻辑函数都可以仅用它们实现。
+""")
+
+
+# ====================================================================
+# 总结
+# ====================================================================
+print("=" * 60)
+print("总结：本节核心要点")
+print("=" * 60)
+print("""
+  1. 感知机 = 最简单的神经网络：y = sign(w·x + b)
+  2. 学习算法：错误时更新 w 和 b，正确时不动
+  3. 能力边界：只能解线性可分问题（AND/OR 可以，XOR 不行）
+  4. XOR 问题是深度学习的起源动机：单层不够，需要多层
+  5. 两层网络就能解 XOR：组合多条决策线形成非线性边界
+
+  下一节预告：第2章·第2节·反向传播与多层感知机
+  → 学习如何让多层网络自动找到正确权重（梯度下降 + 链式法则）
 """)

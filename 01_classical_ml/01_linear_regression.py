@@ -1,316 +1,434 @@
 """
-==============================================================
-第1章 第1节：线性回归 —— 用直线拟合数据
-==============================================================
+====================================================================
+第1章 · 第1节 · 线性回归
+====================================================================
 
-【为什么需要它？】
-问题：给你过去100天的气温数据和冰淇淋销量，
-     能预测明天气温35度时，冰淇淋会卖多少？
+【一句话总结】
+线性回归是最简单的"学习"算法——它教会你损失函数、梯度下降、过拟合
+这些贯穿整个深度学习的核心概念。
 
-线性回归假设：销量 ≈ a × 气温 + b
-训练目标：找到最好的 a 和 b，让预测尽量准。
+【为什么深度学习需要这个？】
+- 神经网络的每一层本质上就是 y = Wx + b（线性变换）
+- MSE 损失函数、梯度下降的训练循环——和训练 GPT 是同一个框架
+- 从最简单的模型开始，理解"学习"到底在做什么
 
-这是机器学习最基础的模型，也是理解所有 ML 算法的入门。
+【核心概念】
 
-【生活类比】
-拿一把尺子，在散点图上找一条"最代表这些点"的直线。
-"最代表" = 所有点到直线的距离之和最小。
-==============================================================
+1. 模型（Model）
+   - 一个函数 y = wx + b，w 是权重（weight），b 是偏置（bias）
+   - 类比：y = wx + b 就是一条直线，"学习"就是找最好的那条
+
+2. 损失函数（Loss Function）
+   - MSE = (1/N) Σ(y_pred - y_true)²
+   - 衡量预测和真实值的差距，越小越好
+   - 类比：考试分数，损失越小，学得越好
+
+3. 梯度下降（Gradient Descent）
+   - 对损失函数求导 → 得到梯度 → 沿负梯度方向更新参数
+   - w = w - lr × ∂L/∂w
+   - 类比：闭眼下山，摸到哪边低就往哪边走
+
+4. 闭式解 vs 迭代解
+   - 闭式解：w = (X^T X)^{-1} X^T y，一步到位但数据大时计算量爆炸
+   - 迭代解：梯度下降，一步步逼近，可处理大数据
+
+5. 过拟合的直觉
+   - 模型太复杂（参数太多）→ 记住了训练数据的噪声
+   - 训练误差很低但测试误差很高 → 过拟合
+
+【前置知识】
+第0章 - 数学基础（向量、梯度、梯度下降）
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-np.random.seed(42)
+# 设置中文字体和全局绘图风格
+plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
+plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
+plt.rcParams["figure.figsize"] = (10, 6)
+np.random.seed(42)  # 固定随机种子，保证结果可复现
 
-# ============================================================
-# Part 1: 生成数据 + 可视化问题
-# ============================================================
-print("=" * 50)
-print("Part 1: 问题设定 —— 预测房价")
-print("=" * 50)
 
-"""
-任务：根据房屋面积（平方米）预测房价（万元）
-假设真实规律：房价 = 5 × 面积 + 30 + 噪声
-我们要从数据中"发现"这个规律（不知道5和30！）
-"""
+# ════════════════════════════════════════════════════════════════════
+# 第1部分：生成数据
+# ════════════════════════════════════════════════════════════════════
+def generate_data(n_samples=100, w_true=3.5, b_true=2.0, noise_std=1.5):
+    """
+    生成带噪声的线性数据：y = w_true * x + b_true + 噪声
 
-# 生成真实数据
-n_samples = 100
-X = np.random.uniform(20, 150, n_samples)  # 面积：20-150平方米
-true_w = 5.0   # 每平方米5万
-true_b = 30.0  # 基础价格30万
-noise = np.random.randn(n_samples) * 20    # 现实中有各种影响因素
-y = true_w * X + true_b + noise            # 真实房价
+    参数:
+        n_samples : 样本数量
+        w_true    : 真实斜率（权重）
+        b_true    : 真实截距（偏置）
+        noise_std : 噪声的标准差，越大数据越散
 
-print(f"数据：{n_samples}套房屋")
-print(f"面积范围：{X.min():.0f} - {X.max():.0f} 平方米")
-print(f"房价范围：{y.min():.0f} - {y.max():.0f} 万元")
-print(f"真实参数（我们不知道！）：w={true_w}, b={true_b}")
+    返回: X 形状 (n,) 的特征, y 形状 (n,) 的标签
+    """
+    X = np.random.uniform(-3, 3, n_samples)
+    noise = np.random.normal(0, noise_std, n_samples)  # 高斯噪声
+    y = w_true * X + b_true + noise
+    return X, y
 
-# ============================================================
-# Part 2: 损失函数 —— 衡量预测有多差
-# ============================================================
-print("\n" + "=" * 50)
-print("Part 2: 均方误差（MSE）损失")
-print("=" * 50)
 
-"""
-损失函数 = 衡量模型预测有多差的"分数"（越小越好）
+print("=" * 60)
+print("第1部分：生成数据")
+print("=" * 60)
 
-均方误差 MSE：
-  L(w, b) = (1/N) * Σ (y_pred_i - y_true_i)²
+X_all, y_all = generate_data()
 
-为什么用平方？
-  1. 正负误差都变成正数（不会互相抵消）
-  2. 大误差被惩罚更多（平方放大了大误差）
-  3. 数学上好求导（导数很干净）
+# --- 可视化原始数据 ---
+plt.figure()
+plt.scatter(X_all, y_all, alpha=0.6, edgecolors="k", linewidths=0.5, label="数据点")
+plt.xlabel("x（特征）")
+plt.ylabel("y（标签）")
+plt.title("生成的线性数据 (y = 3.5x + 2.0 + 噪声)")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
 
-为什么不用绝对值 |误差|？
-  绝对值在0处不可导，梯度下降不够平滑
-"""
+# 划分训练集和测试集（80% 训练，20% 测试）
+indices = np.random.permutation(len(X_all))
+split = int(0.8 * len(X_all))
+train_idx, test_idx = indices[:split], indices[split:]
+X_train, y_train = X_all[train_idx], y_all[train_idx]
+X_test, y_test = X_all[test_idx], y_all[test_idx]
+print(f"训练集: {len(X_train)} 个样本 | 测试集: {len(X_test)} 个样本")
 
-def predict(X, w, b):
-    return w * X + b
 
-def mse_loss(y_pred, y_true):
+# ════════════════════════════════════════════════════════════════════
+# 第2部分：闭式解（Normal Equation / 正规方程）
+# ════════════════════════════════════════════════════════════════════
+# 数学推导: L = ||Xw - y||², 令 ∂L/∂w = 0 → w = (X^T X)^{-1} X^T y
+
+def normal_equation(X, y):
+    """
+    用正规方程直接求解线性回归最优参数。
+
+    返回: w（权重/斜率）, b（偏置/截距）
+    """
+    # 构造设计矩阵：加一列全 1（对应偏置 b）
+    X_design = np.column_stack([X, np.ones(len(X))])  # 形状 (n, 2)
+    # 正规方程：theta = (X^T X)^{-1} X^T y
+    theta = np.linalg.inv(X_design.T @ X_design) @ X_design.T @ y
+    return theta[0], theta[1]
+
+
+print("\n" + "=" * 60)
+print("第2部分：闭式解（正规方程）")
+print("=" * 60)
+
+w_closed, b_closed = normal_equation(X_train, y_train)
+print(f"闭式解结果: w = {w_closed:.4f}, b = {b_closed:.4f}")
+print(f"真实参数:   w = 3.5000, b = 2.0000")
+
+# --- 可视化闭式解拟合效果 ---
+plt.figure()
+plt.scatter(X_train, y_train, alpha=0.5, label="训练数据", edgecolors="k", linewidths=0.5)
+x_line = np.linspace(-3.5, 3.5, 100)
+plt.plot(x_line, w_closed * x_line + b_closed, "r-", linewidth=2,
+         label=f"闭式解: y={w_closed:.2f}x+{b_closed:.2f}")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.title("闭式解（正规方程）拟合结果")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ════════════════════════════════════════════════════════════════════
+# 第3部分：手写梯度下降
+# ════════════════════════════════════════════════════════════════════
+# 核心循环（和训练神经网络完全相同的框架！）:
+#   for 每一步:
+#       1. 前向传播：y_pred = w * x + b
+#       2. 计算损失：L = mean((y_pred - y)²)
+#       3. 计算梯度：dL/dw, dL/db
+#       4. 更新参数：w -= lr * dL/dw,  b -= lr * dL/db
+
+def compute_mse(y_pred, y_true):
+    """计算均方误差（MSE）"""
     return np.mean((y_pred - y_true) ** 2)
 
-# 测试几组不同的参数
-print("不同参数的 MSE 损失：")
-test_params = [(5, 30), (3, 50), (7, 10), (1, 100)]
-for w, b in test_params:
-    y_pred = predict(X, w, b)
-    loss = mse_loss(y_pred, y)
-    print(f"  w={w:3d}, b={b:3d} → MSE={loss:8.2f}", end="")
-    if w == 5 and b == 30:
-        print("  ← 真实参数，损失最小！")
-    else:
-        print()
 
-# ============================================================
-# Part 3: 梯度推导 —— 往哪个方向更新参数？
-# ============================================================
-print("\n" + "=" * 50)
-print("Part 3: 梯度推导")
-print("=" * 50)
-
-"""
-L(w, b) = (1/N) * Σ (w*x_i + b - y_i)²
-
-对 w 求偏导：
-  ∂L/∂w = (2/N) * Σ (w*x_i + b - y_i) * x_i
-         = (2/N) * Σ (y_pred_i - y_true_i) * x_i
-
-对 b 求偏导：
-  ∂L/∂b = (2/N) * Σ (w*x_i + b - y_i) * 1
-         = (2/N) * Σ (y_pred_i - y_true_i)
-
-直觉：
-  - 如果 y_pred > y_true（预测偏高），误差 > 0
-    - ∂L/∂w > 0（if x>0）→ w 要减小，让预测降低
-  - 这正是梯度下降在做的事！
-"""
-
-def compute_gradients(X, y_true, w, b):
+def gradient_descent(X, y, lr=0.05, n_iters=200, verbose=True):
     """
-    计算 MSE 损失对 w 和 b 的梯度
+    用梯度下降训练线性回归模型。
+
+    参数:
+        X, y    : 训练数据
+        lr      : 学习率（步长大小）
+        n_iters : 迭代次数
+        verbose : 是否打印训练进度
+
+    返回: w_hist, b_hist, loss_hist（每步的参数和损失记录）
     """
-    N = len(X)
-    y_pred = predict(X, w, b)
-    error = y_pred - y_true  # 预测误差
+    n = len(X)
+    # 随机初始化参数
+    w, b = np.random.randn() * 0.5, np.random.randn() * 0.5
+    w_hist, b_hist, loss_hist = [w], [b], []
 
-    # 链式法则：dL/dw = (dL/d_pred) * (d_pred/dw)
-    # dL/d_pred = 2/N * error（MSE对预测值的导数）
-    # d_pred/dw = x（预测值对w的导数）
-    dw = (2 / N) * np.dot(error, X)  # = (2/N) * Σ error_i * x_i
-    db = (2 / N) * np.sum(error)     # = (2/N) * Σ error_i
+    for i in range(n_iters):
+        # 第1步：前向传播
+        y_pred = w * X + b
+        # 第2步：计算损失
+        loss = compute_mse(y_pred, y)
+        loss_hist.append(loss)
+        # 第3步：计算梯度
+        # ∂L/∂w = (2/N) Σ (y_pred - y) * x,  ∂L/∂b = (2/N) Σ (y_pred - y)
+        error = y_pred - y
+        dw = (2 / n) * np.sum(error * X)
+        db = (2 / n) * np.sum(error)
+        # 第4步：更新参数
+        w, b = w - lr * dw, b - lr * db
+        w_hist.append(w)
+        b_hist.append(b)
 
-    return dw, db
+        if verbose and ((i + 1) % 50 == 0 or i == 0):
+            print(f"  迭代 {i+1:>4d}/{n_iters} | 损失: {loss:.4f} | "
+                  f"w: {w:.4f} | b: {b:.4f}")
 
-# ============================================================
-# Part 4: 梯度下降训练
-# ============================================================
-print("Part 4: 梯度下降训练循环")
-print("=" * 50)
+    return w_hist, b_hist, loss_hist
 
-class LinearRegression:
-    def __init__(self, learning_rate=0.0001, n_epochs=1000):
-        self.lr = learning_rate
-        self.n_epochs = n_epochs
-        self.w = 0.0  # 初始化为0
-        self.b = 0.0
-        self.loss_history = []
 
-    def fit(self, X, y):
-        for epoch in range(self.n_epochs):
-            # 1. 前向传播：计算预测和损失
-            y_pred = predict(X, self.w, self.b)
-            loss = mse_loss(y_pred, y)
-            self.loss_history.append(loss)
+print("\n" + "=" * 60)
+print("第3部分：手写梯度下降")
+print("=" * 60)
 
-            # 2. 反向传播：计算梯度
-            dw, db = compute_gradients(X, y, self.w, self.b)
+w_hist, b_hist, loss_hist = gradient_descent(X_train, y_train, lr=0.05, n_iters=200)
+w_gd, b_gd = w_hist[-1], b_hist[-1]
+print(f"\n梯度下降结果: w = {w_gd:.4f}, b = {b_gd:.4f}")
+print(f"闭式解结果:   w = {w_closed:.4f}, b = {b_closed:.4f}")
+print("差距很小！两种方法殊途同归。")
 
-            # 3. 更新参数（沿负梯度方向）
-            self.w -= self.lr * dw
-            self.b -= self.lr * db
 
-            if epoch % 200 == 0:
-                print(f"  Epoch {epoch:4d}: Loss={loss:.2f}, w={self.w:.3f}, b={self.b:.3f}")
+# ════════════════════════════════════════════════════════════════════
+# 第4部分：训练过程可视化
+# ════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 60)
+print("第4部分：训练过程可视化")
+print("=" * 60)
 
-    def predict(self, X):
-        return predict(X, self.w, self.b)
-
-model = LinearRegression(learning_rate=0.0001, n_epochs=1000)
-model.fit(X, y)
-
-print(f"\n训练结果：")
-print(f"  学到的 w = {model.w:.3f}  （真实值：{true_w}）")
-print(f"  学到的 b = {model.b:.3f}  （真实值：{true_b}）")
-
-# ============================================================
-# Part 5: 解析解 vs 梯度下降
-# ============================================================
-print("\n" + "=" * 50)
-print("Part 5: 解析解 —— 一步到位的数学解")
-print("=" * 50)
-
-"""
-线性回归有精确的解析解（最小二乘法）：
-  W* = (X^T X)^{-1} X^T y
-
-为什么实际不用解析解？
-  1. 矩阵求逆的计算量是 O(n³)，n是参数数量
-  2. 神经网络有百万参数，矩阵逆根本算不了
-  3. 梯度下降可以在线学习（来一个样本更新一次）
-  4. 解析解需要完整数据集，不适合大数据
-
-但对于线性回归，解析解是验证梯度下降的好工具！
-"""
-
-# 构建矩阵形式（加偏置列）
-X_matrix = np.column_stack([X, np.ones(len(X))])  # shape (N, 2)
-# W* = (X^T X)^{-1} X^T y
-W_analytical = np.linalg.inv(X_matrix.T @ X_matrix) @ X_matrix.T @ y
-print(f"解析解：w={W_analytical[0]:.4f}, b={W_analytical[1]:.4f}")
-print(f"梯度下降：w={model.w:.4f}, b={model.b:.4f}")
-print(f"结果非常接近！（梯度下降需要调学习率和epoch数）")
-
-# ============================================================
-# Part 6: 可视化结果
-# ============================================================
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-# 左图：数据和拟合直线
-ax = axes[0]
-ax.scatter(X, y, alpha=0.5, label='真实数据', color='steelblue', s=30)
-X_line = np.linspace(20, 150, 100)
-ax.plot(X_line, predict(X_line, true_w, true_b),
-       'g--', linewidth=2, label=f'真实直线 (w={true_w},b={true_b})')
-ax.plot(X_line, predict(X_line, model.w, model.b),
-       'r-', linewidth=2, label=f'学到的直线 (w={model.w:.2f},b={model.b:.2f})')
-ax.set_xlabel('面积（平方米）')
-ax.set_ylabel('房价（万元）')
-ax.set_title('线性回归：拟合结果')
-ax.legend()
-ax.grid(True, alpha=0.3)
+# --- 左图：损失曲线 ---
+axes[0].plot(loss_hist, color="steelblue", linewidth=1.5)
+axes[0].set_xlabel("迭代次数")
+axes[0].set_ylabel("MSE 损失")
+axes[0].set_title("训练损失曲线")
+axes[0].grid(True, alpha=0.3)
+axes[0].annotate(f"初始: {loss_hist[0]:.2f}", xy=(0, loss_hist[0]),
+                 fontsize=9, xytext=(30, loss_hist[0] * 0.9),
+                 arrowprops=dict(arrowstyle="->", color="gray"))
+axes[0].annotate(f"最终: {loss_hist[-1]:.2f}",
+                 xy=(len(loss_hist)-1, loss_hist[-1]), fontsize=9,
+                 xytext=(len(loss_hist)*0.5, loss_hist[-1]+1),
+                 arrowprops=dict(arrowstyle="->", color="gray"))
 
-# 右图：训练损失曲线
-ax = axes[1]
-ax.plot(model.loss_history)
-ax.set_xlabel('训练步数（Epoch）')
-ax.set_ylabel('MSE 损失')
-ax.set_title('训练过程：损失下降曲线')
-ax.grid(True, alpha=0.3)
-ax.set_yscale('log')
-
+# --- 右图：不同迭代步的拟合直线 ---
+axes[1].scatter(X_train, y_train, alpha=0.4, s=20, label="训练数据")
+x_line = np.linspace(-3.5, 3.5, 100)
+steps_to_show = [0, 5, 20, 50, 199]  # 选几个关键迭代步
+colors = plt.cm.RdYlGn(np.linspace(0.1, 0.9, len(steps_to_show)))
+for step, color in zip(steps_to_show, colors):
+    axes[1].plot(x_line, w_hist[step] * x_line + b_hist[step],
+                 color=color, linewidth=1.5, label=f"第 {step} 步", alpha=0.8)
+axes[1].set_xlabel("x")
+axes[1].set_ylabel("y")
+axes[1].set_title("梯度下降过程：直线逐步逼近最优")
+axes[1].legend(fontsize=8)
+axes[1].grid(True, alpha=0.3)
 plt.tight_layout()
-plt.savefig('01_classical_ml/linear_regression.png', dpi=100, bbox_inches='tight')
-print("\n图片已保存：01_classical_ml/linear_regression.png")
 plt.show()
 
-# ============================================================
-# Part 7: 正则化 —— 防止过拟合
-# ============================================================
-print("\n" + "=" * 50)
-print("Part 7: 正则化 —— 防止模型太"复杂"")
-print("=" * 50)
 
-"""
-过拟合：模型把训练数据的"噪声"也记住了，在新数据上表现差。
+# ════════════════════════════════════════════════════════════════════
+# 第5部分：学习率实验
+# ════════════════════════════════════════════════════════════════════
+# 学习率（lr）是最重要的超参数之一：
+#   太小 → 收敛太慢  |  刚好 → 稳步收敛  |  太大 → 震荡/发散
 
-解决方法：正则化 = 在损失函数里加一个"惩罚项"
-  L2 正则化（Ridge）：L_total = MSE + λ * Σ w²
-    - 惩罚过大的权重（让权重不要太极端）
-    - 梯度：dL/dw += 2λ * w
+print("\n" + "=" * 60)
+print("第5部分：学习率实验")
+print("=" * 60)
 
-  L1 正则化（Lasso）：L_total = MSE + λ * Σ |w|
-    - 倾向于把小权重推到0（特征选择！）
+learning_rates = [0.001, 0.01, 0.05, 0.1, 0.5]
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-λ（正则化强度）是超参数：
-  太大：模型太简单，欠拟合
-  太小：相当于没正则化
-"""
+# 左图：每个学习率的损失曲线
+for lr in learning_rates:
+    print(f"\n--- 学习率 lr = {lr} ---")
+    _, _, losses = gradient_descent(X_train, y_train, lr=lr, n_iters=200)
+    axes[0].plot(np.clip(losses, 0, 100), label=f"lr={lr}", linewidth=1.5)
 
-# 多项式过拟合示例（只用5个点，但拟合高次多项式）
-n_few = 10
-X_few = np.sort(np.random.uniform(0, 1, n_few))
-y_few = np.sin(2 * np.pi * X_few) + np.random.randn(n_few) * 0.2
+axes[0].set_xlabel("迭代次数")
+axes[0].set_ylabel("MSE 损失（裁剪到100以内）")
+axes[0].set_title("不同学习率的损失曲线")
+axes[0].legend()
+axes[0].grid(True, alpha=0.3)
 
-fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-fig.suptitle('正则化：控制模型复杂度', fontsize=13)
+# 右图：最终损失柱状图
+final_losses = []
+for lr in learning_rates:
+    _, _, losses = gradient_descent(X_train, y_train, lr=lr, n_iters=200, verbose=False)
+    final_losses.append(min(losses[-1], 100))  # 裁剪发散情况
 
-X_plot = np.linspace(0, 1, 200)
-degree = 9  # 高阶多项式（容易过拟合）
-
-for ax, (lam, title) in zip(axes, [
-    (0, '无正则化（过拟合）'),
-    (0.001, 'L2正则化 λ=0.001'),
-    (1.0, 'L2正则化 λ=1.0（欠拟合）'),
-]):
-    # 构造多项式特征
-    X_poly = np.column_stack([X_few**i for i in range(degree+1)])
-    X_plot_poly = np.column_stack([X_plot**i for i in range(degree+1)])
-
-    # L2正则化的解析解：W = (X^T X + λI)^{-1} X^T y
-    n_features = degree + 1
-    W = np.linalg.inv(X_poly.T @ X_poly + lam * np.eye(n_features)) @ X_poly.T @ y_few
-
-    y_fit = X_plot_poly @ W
-
-    ax.scatter(X_few, y_few, color='red', s=50, zorder=5, label='训练数据')
-    ax.plot(X_plot, np.sin(2 * np.pi * X_plot), 'g--', label='真实函数')
-    ax.plot(X_plot, np.clip(y_fit, -3, 3), 'b-', linewidth=2, label='模型预测')
-    ax.set_ylim(-2, 2)
-    ax.set_title(title)
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
-
+bar_colors = ["#2ecc71" if l < 5 else "#e74c3c" for l in final_losses]
+axes[1].bar([f"lr={lr}" for lr in learning_rates], final_losses, color=bar_colors)
+axes[1].set_ylabel("最终 MSE 损失")
+axes[1].set_title("各学习率的最终损失对比")
+axes[1].grid(True, alpha=0.3, axis="y")
 plt.tight_layout()
-plt.savefig('01_classical_ml/regularization.png', dpi=100, bbox_inches='tight')
-print("图片已保存：01_classical_ml/regularization.png")
 plt.show()
 
-# ============================================================
-# 思考题
-# ============================================================
-print("\n" + "=" * 50)
-print("思考题")
-print("=" * 50)
+print("\n关键观察：")
+print("  - lr=0.001 太小，200步还没收敛")
+print("  - lr=0.05  刚好，快速且稳定地收敛")
+print("  - lr=0.5   太大，损失震荡甚至发散")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 第6部分：多项式回归与过拟合
+# ════════════════════════════════════════════════════════════════════
+# 核心思想：加入 x², x³, ... 特征后能拟合曲线，但阶数太高 → 过拟合
+# 过拟合表现：训练误差 ↓↓↓ 但 测试误差 ↑↑↑
+
+def polynomial_features(X, degree):
+    """将 X 扩展为多项式特征 [1, x, x², ..., x^degree]，形状 (n, degree+1)"""
+    return np.column_stack([X ** d for d in range(degree + 1)])
+
+
+def fit_polynomial(X_train, y_train, X_test, y_test, degree):
+    """
+    用正规方程拟合多项式回归，返回参数、训练MSE、测试MSE。
+    """
+    X_tr_poly = polynomial_features(X_train, degree)
+    X_te_poly = polynomial_features(X_test, degree)
+    # 加微小正则防止矩阵奇异
+    I = np.eye(degree + 1)
+    I[0, 0] = 0  # 不正则化偏置项
+    theta = np.linalg.inv(X_tr_poly.T @ X_tr_poly + 1e-8 * I) @ X_tr_poly.T @ y_train
+    train_mse = compute_mse(X_tr_poly @ theta, y_train)
+    test_mse = compute_mse(X_te_poly @ theta, y_test)
+    return theta, train_mse, test_mse
+
+
+print("\n" + "=" * 60)
+print("第6部分：多项式回归与过拟合")
+print("=" * 60)
+
+# --- 三张子图对比：阶数 1, 3, 15 ---
+degrees = [1, 3, 15]
+fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+x_plot = np.linspace(X_train.min() - 0.5, X_train.max() + 0.5, 300)
+
+for idx, degree in enumerate(degrees):
+    theta, train_mse, test_mse = fit_polynomial(
+        X_train, y_train, X_test, y_test, degree)
+    y_plot = polynomial_features(x_plot, degree) @ theta
+
+    axes[idx].scatter(X_train, y_train, alpha=0.4, s=20, label="训练数据", zorder=5)
+    axes[idx].scatter(X_test, y_test, alpha=0.4, s=20, marker="^",
+                      label="测试数据", color="orange", zorder=5)
+    axes[idx].plot(x_plot, y_plot, "r-", linewidth=2, label="拟合曲线")
+    axes[idx].set_ylim(y_all.min() - 3, y_all.max() + 3)
+    axes[idx].set_title(f"阶数 = {degree}\n训练MSE={train_mse:.2f} | 测试MSE={test_mse:.2f}")
+    axes[idx].legend(fontsize=8)
+    axes[idx].grid(True, alpha=0.3)
+    print(f"  阶数 {degree:>2d}: 训练MSE = {train_mse:.4f} | 测试MSE = {test_mse:.4f}")
+
+plt.suptitle("多项式回归：合适 → 略复杂 → 过拟合", fontsize=14, fontweight="bold")
+plt.tight_layout()
+plt.show()
+
+# --- 训练/测试误差随阶数变化的曲线 ---
+all_degrees = range(1, 16)
+train_errors, test_errors = [], []
+for d in all_degrees:
+    _, tr_err, te_err = fit_polynomial(X_train, y_train, X_test, y_test, d)
+    train_errors.append(tr_err)
+    test_errors.append(te_err)
+
+plt.figure(figsize=(10, 6))
+plt.plot(list(all_degrees), train_errors, "o-", label="训练误差",
+         color="steelblue", linewidth=2)
+plt.plot(list(all_degrees), test_errors, "s-", label="测试误差",
+         color="coral", linewidth=2)
+plt.xlabel("多项式阶数")
+plt.ylabel("MSE 损失")
+plt.title("模型复杂度 vs 误差：过拟合的经典曲线")
+plt.legend(fontsize=12)
+plt.grid(True, alpha=0.3)
+plt.xticks(list(all_degrees))
+plt.axvspan(0.5, 2.5, alpha=0.1, color="blue")   # 欠拟合区
+plt.axvspan(7.5, 15.5, alpha=0.1, color="red")    # 过拟合区
+plt.tight_layout()
+plt.show()
+
+print("\n关键观察：")
+print("  - 阶数=1: 简单线性模型，拟合合理（数据本身就是线性的）")
+print("  - 阶数=3: 稍微灵活一点，效果差不多")
+print("  - 阶数=15: 训练误差很低，但曲线剧烈抖动 → 过拟合！")
+print("  - 过拟合的标志：训练误差 ↓ 但测试误差 ↑")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 第7部分：完整总结与思考题
+# ════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 60)
+print("总结")
+print("=" * 60)
 print("""
-1. 【学习率实验】
-   把 learning_rate 改成 0.001、0.00001，重新训练。
-   观察：收敛速度有什么变化？损失最终能到多低？
+本节你学到了线性回归的全部核心概念：
+  1. 模型:      y = wx + b，最简单的参数化函数
+  2. 损失函数:  MSE，衡量预测好坏的标准
+  3. 闭式解:    正规方程，一步到位但不可扩展
+  4. 梯度下降:  迭代优化，深度学习的通用训练框架
+  5. 学习率:    太小收敛慢，太大会发散
+  6. 过拟合:    模型太复杂 → 记住噪声 → 测试表现差
 
-2. 【多变量线性回归】
-   如果还有"房龄"这个特征（老房子便宜），
-   模型变成：房价 = w1*面积 + w2*房龄 + b
-   修改代码支持多个特征（提示：X 变成矩阵，w 变成向量）
-
-3. 【正则化强度】
-   在多项式过拟合例子中，尝试 λ = 0.0001, 0.01, 0.1, 10。
-   画出每种 λ 下的拟合曲线，找到最合适的 λ。
-   如何客观地评估哪个 λ 最好？（提示：用"验证集"）
+这些概念在后续每一章都会反复出现：
+  - 神经网络 = 更复杂的模型（但训练循环一样！）
+  - 交叉熵 = 分类任务的损失函数（替代 MSE）
+  - Adam = 更聪明的梯度下降（替代 vanilla GD）
+  - Dropout/正则化 = 对抗过拟合的武器
 """)
+
+print("=" * 60)
+print("思考题")
+print("=" * 60)
+print("""
+1. 【梯度下降 vs 闭式解】
+   梯度下降需要迭代几百步才能逼近最优解，闭式解一步就到位。
+   那为什么深度学习不用闭式解，而坚持用梯度下降？
+   提示：想想当模型变成神经网络时，损失函数还是凸函数吗？
+         当数据有十亿条时，(X^T X)^{-1} 的计算量是多少？
+
+2. 【学习率调度】
+   实验中我们用了固定学习率。如果训练初期用大学习率，
+   后期用小学习率（"学习率衰减"），效果会怎样？
+   请修改 gradient_descent 函数，实现 lr = lr_0 / (1 + decay * t)，
+   观察损失曲线的变化。
+
+3. 【批量 vs 随机梯度下降】
+   我们的梯度下降每步用了全部训练数据（批量梯度下降）。
+   如果每步只随机抽一个样本来计算梯度（随机梯度下降, SGD），
+   损失曲线会有什么不同？收敛速度呢？
+   提示：SGD 的梯度有噪声，但每步计算更快。
+
+4. 【特征缩放的影响】
+   如果 x 的范围是 [0, 1000]（比如房价面积），而不是 [-3, 3]，
+   梯度下降还能正常工作吗？为什么很多教程都强调要做
+   特征标准化（减均值除标准差）？
+   提示：画出损失函数关于 w 和 b 的等高线图来理解。
+
+5. 【从线性到非线性】
+   线性回归只能拟合直线。如果我们在 y = wx + b 的基础上
+   加一个非线性函数 y = σ(wx + b)（比如 σ = sigmoid），
+   会发生什么？这和神经网络有什么关系？
+   提示：这就是下一节——逻辑回归的核心思想！
+""")
+
+print("下一节预告: 第1章 · 第2节 · 逻辑回归与分类")
